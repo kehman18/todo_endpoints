@@ -7,7 +7,7 @@ app = Flask(__name__)
 def db_connection():
     conn = None
     try:
-        conn = sqlite3.connect('oder_lists.sqlite')
+        conn = sqlite3.connect('order_lists.sqlite')
     except sqlite3.Error as e:
         print(e)
     return conn
