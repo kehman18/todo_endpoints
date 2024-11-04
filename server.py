@@ -115,6 +115,31 @@ def get_products_by_category(category):
     else:
         return jsonify({'message': 'No products found for this category'}), 404
 
+
+#edit an already existing order
+@app.route('/products/category/orders/<int:user_id>', methods=['PUT'])
+def add_orders(user_id):
+    #get the items of the new orders
+    new_order_id = request.form['order_id']
+    new_total_price = request.form['total_price']
+    new_products = list(request.form['products'])
+
+    check_order = [
+        order for order in UsersProduct['orders'] if order['user_id'] == user_id
+    ]
+
+    edited_order = {
+        check_order['order_id']: new_order_id,
+        check_order['user_id']: user_id,
+        check_order['total_price']: new_total_price,
+        check_order['products']: new_products
+    }
+
+    UsersProduct['orders'].append(edited_order)
+
+    return jsonify(UsersProduct['orders'])
+
+
 #get the user most expensive order
 @app.route('/users/<int:user_id>/highest_order', methods=['GET'])
 def get_highest_order(user_id):
