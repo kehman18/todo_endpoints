@@ -197,6 +197,7 @@ def get_users():
 # Endpoint to create an order for a specific user
 @app.route('/users/<int:id>/total_order_price', methods=['POST'])
 def create_orders(id):
+    '''create new orders'''
     user = User.query.get(id)
     if not user:
         return jsonify({'error': 'User not found'}), 404
@@ -225,6 +226,7 @@ def create_orders(id):
 # Get products by category
 @app.route('/products/category/<string:category>', methods=['GET'])
 def get_products_by_category(category):
+    '''this functions get products by category'''
     matching_products = Product.query.filter_by(category=category).all()
     if not matching_products:
         return jsonify({'message': 'No products found for this category'}), 404
@@ -239,6 +241,7 @@ def get_products_by_category(category):
 # Edit an existing order
 @app.route('/products/category/orders/<int:user_id>', methods=['PUT'])
 def edit_order(user_id):
+    '''edit_order changes the intent of the order of a user'''
     order_data = request.json
     order_id = order_data.get('order_id')
 
@@ -265,6 +268,7 @@ def edit_order(user_id):
 # Get the highest order for a user
 @app.route('/users/<int:user_id>/highest_order', methods=['GET'])
 def get_highest_order(user_id):
+    '''gets the highest order made by a user'''
     user_orders = Order.query.filter_by(user_id=user_id).order_by(Order.total_price.desc()).all()
     if not user_orders:
         return jsonify({'message': 'User Order not found'}), 404
@@ -279,6 +283,7 @@ def get_highest_order(user_id):
 # Get all users who ordered a product
 @app.route('/products/<int:product_id>/users', methods=['GET'])
 def get_product_users(product_id):
+    '''get all the users who ordered a products'''
     product = Product.query.get(product_id)
     if not product:
         return jsonify({'error': 'Product not found'}), 404
