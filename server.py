@@ -1,6 +1,45 @@
 from flask import Flask, jsonify, request
+from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///server_database.db'
+db = SQLAlchemy(app)
+
+# User model
+class User(db.Model):
+    __tablename__ = 'users'
+    
+    user_id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(40), nullable=False)
+    email = db.Column(db.String(50), unique=True, nullable=False)
+    address = db.Column(db.String(60))
+    age = db.Column(db.Integer)
+    orders = db.relationship('Order', backref='user', lazy=True)
+
+# Order model
+class Order(db.Model):
+    __tablename__ = 'orders'
+    
+    order_id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.user_id'), nullable=False)
+    total_price = db.Column(db.Float, nullable=False)
+    products = db.relationship('Product', secondary='order_product', lazy='subquery', backref=db.backref('orders', lazy=True))
+
+# Product model
+class Product(db.Model):
+    __tablename__ = 'products'
+    
+    product_id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    category = db.Column(db.String(50))
+    price = db.Column(db.Float, nullable=False)
+
+# Association table for many-to-many relationship between Orders and Products
+order_product = db.Table('order_product',
+    db.Column('order_id', db.Integer, db.ForeignKey('orders.order_id'), primary_key=True),
+    db.Column('product_id', db.Integer, db.ForeignKey('products.product_id'), primary_key=True)
+)
+
 
 UsersProduct = {
   "users": [
@@ -10,7 +49,7 @@ UsersProduct = {
       "email": "john@example.com",
       "address": "1234 Elm St, Springfield",
       "age": 30,
-      "orders": [101, 102]
+      "orders": [101]
     },
     {
       "user_id": 2,
@@ -18,8 +57,17 @@ UsersProduct = {
       "email": "jane@example.com",
       "address": "5678 Oak St, Metropolis",
       "age": 25,
+      "orders": [102]
+    },
+    {
+      "user_id": 3,
+      "name": "temiloluwa Oyebefun",
+      "email": "oyebefun@example.com",
+      "address": "P.O.B 2467 berger, lagos",
+      "age": 22,
       "orders": [103]
     }
+  
   ],
   "orders": [
     {
@@ -36,7 +84,7 @@ UsersProduct = {
     },
     {
       "order_id": 103,
-      "user_id": 2,
+      "user_id": 3,
       "total_price": 230.50,
       "products": [1005]
     }
@@ -75,143 +123,194 @@ UsersProduct = {
   ]
 }
 
+#endpoints to create new users
+@app.route('/create_users', methods=['POST'])
+def create_user():
+    '''create user creates the user'''
+    user_data = request.json
+    new_user = User(
+        name=user_data['name'],
+        email=user_data['email'],
+        address=user_data.get('address'),
+        age=user_data.get('age')
+    )
+    db.session.add(new_user)
+    db.session.commit()
+    return jsonify({"message": "User created successfully", "user_id": new_user.user_id}), 201
+
+#create a new products
+@app.route('/create_products', methods=['POST'])
+def create_product():
+    '''the create_product creates a new product'''
+    product_data = request.json
+    new_product = Product(
+        name=product_data['name'],
+        category=product_data.get('category'),
+        price=product_data['price']
+    )
+    db.session.add(new_product)
+    db.session.commit()
+    return jsonify({"message": "Product created successfully", "product_id": new_product.product_id}), 201
+
+#crete a new order
+@app.route('/create_orders', methods=['POST'])
+def create_order():
+    order_data = request.json
+    user_id = order_data['user_id']
+    total_price = order_data['total_price']
+    product_ids = order_data['products']
+
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    products = Product.query.filter(Product.product_id.in_(product_ids)).all()
+    if len(products) != len(product_ids):
+        return jsonify({"error": "One or more products not found"}), 404
+
+    new_order = Order(
+        user_id=user_id,
+        total_price=total_price,
+        products=products
+    )
+    db.session.add(new_order)
+    db.session.commit()
+
+    return jsonify({"message": "Order created successfully", "order_id": new_order.order_id}), 201
+
+# Endpoint to get all users
 @app.route('/users', methods=['GET'])
 def get_users():
-    '''users acct'''
-    users = UsersProduct["users"]
-    return jsonify(users)
+    users = User.query.all()
+    users_data = [
+        {
+            "user_id": user.user_id,
+            "name": user.name,
+            "email": user.email,
+            "address": user.address,
+            "age": user.age
+        }
+        for user in users
+    ]
+    return jsonify(users_data)
 
+# Endpoint to create an order for a specific user
 @app.route('/users/<int:id>/total_order_price', methods=['POST'])
 def create_orders(id):
-    '''function to create orders''' 
+    user = User.query.get(id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
 
-    new_products = request.form['products']
-    new_price = request.form['price']
+    # Parse JSON data from the request
+    order_data = request.json
+    new_total_price = order_data.get('price')
+    new_product_ids = order_data.get('products', [])
 
-    last_order = UsersProduct['orders'][-1]['order_id']
-    new_order_id = last_order + 1
+    # Create a new order
+    new_order = Order(
+        user_id=id,
+        total_price=new_total_price,
+        products=Product.query.filter(Product.product_id.in_(new_product_ids)).all()
+    )
+    db.session.add(new_order)
+    db.session.commit()
 
-    new_order = {
-        "order_id": new_order_id,
-        "user_id": id,
-        "total_price": new_price,
-        "products": new_products
-    }
+    return jsonify({
+        "order_id": new_order.order_id,
+        "user_id": new_order.user_id,
+        "total_price": new_order.total_price,
+        "products": [product.product_id for product in new_order.products]
+    })
 
-    UsersProduct['orders'].append(new_order)
-
-    return jsonify(UsersProduct['orders'])
-
-#get total order price for a user
+# Get products by category
 @app.route('/products/category/<string:category>', methods=['GET'])
 def get_products_by_category(category):
-    '''get products by category'''
-    matching_products = [
-        product for product in UsersProduct['products'] if product['category'] == category
-    ]
-
-    if matching_products:
-        return jsonify(matching_products)
-    else:
+    matching_products = Product.query.filter_by(category=category).all()
+    if not matching_products:
         return jsonify({'message': 'No products found for this category'}), 404
 
+    return jsonify([{
+        "product_id": product.product_id,
+        "name": product.name,
+        "category": product.category,
+        "price": product.price
+    } for product in matching_products])
 
-#edit an already existing order
+# Edit an existing order
 @app.route('/products/category/orders/<int:user_id>', methods=['PUT'])
-def add_orders(user_id):
-    #get the items of the new orders
-    new_order_id = request.form['order_id']
-    new_total_price = request.form['total_price']
-    new_products = list(request.form['products'])
+def edit_order(user_id):
+    order_data = request.json
+    order_id = order_data.get('order_id')
 
-    check_order = [
-        order for order in UsersProduct['orders'] if order['user_id'] == user_id
-    ]
+    # Find the user's order
+    order = Order.query.filter_by(user_id=user_id, order_id=order_id).first()
+    if not order:
+        return jsonify({'error': 'Order not found for this user'}), 404
 
-    edited_order = {
-        check_order['order_id']: new_order_id,
-        check_order['user_id']: user_id,
-        check_order['total_price']: new_total_price,
-        check_order['products']: new_products
-    }
+    # Update order details
+    order.total_price = order_data.get('total_price', order.total_price)
+    new_product_ids = order_data.get('products')
+    if new_product_ids:
+        order.products = Product.query.filter(Product.product_id.in_(new_product_ids)).all()
 
-    UsersProduct['orders'].append(edited_order)
+    db.session.commit()
 
-    return jsonify(UsersProduct['orders'])
+    return jsonify({
+        "order_id": order.order_id,
+        "user_id": order.user_id,
+        "total_price": order.total_price,
+        "products": [product.product_id for product in order.products]
+    })
 
-
-#get the user most expensive order
+# Get the highest order for a user
 @app.route('/users/<int:user_id>/highest_order', methods=['GET'])
 def get_highest_order(user_id):
-    '''Function to get the highest order'''
-
-    # Filter the orders by user_id first
-    user_orders = [
-        order for order in UsersProduct['orders'] if order['user_id'] == user_id
-    ]
-
-    # Sort the filtered orders by total_price in descending order
-    sorted_user_orders = sorted(user_orders, key=lambda order: order['total_price'], reverse=True)
-
-    if sorted_user_orders:
-        return jsonify(sorted_user_orders)
-    else:
+    user_orders = Order.query.filter_by(user_id=user_id).order_by(Order.total_price.desc()).all()
+    if not user_orders:
         return jsonify({'message': 'User Order not found'}), 404
 
+    highest_order = user_orders[0]
+    return jsonify({
+        "order_id": highest_order.order_id,
+        "total_price": highest_order.total_price,
+        "products": [product.product_id for product in highest_order.products]
+    })
 
-#get all users who ordered a product
+# Get all users who ordered a product
 @app.route('/products/<int:product_id>/users', methods=['GET'])
 def get_product_users(product_id):
-    '''Retrieve users who ordered a specific product'''
-    
-    user_orders = []
-    for order in UsersProduct['orders']:
-        # Check if product_id is in the list of products for each order
-        if product_id in order['products']:
-            # Find the user associated with this order's user_id
-            for user in UsersProduct['users']:
-                if user['user_id'] == order['user_id']:
-                    user_orders.append(user)
-                    break  # Stop after finding the matching user for this order
+    product = Product.query.get(product_id)
+    if not product:
+        return jsonify({'error': 'Product not found'}), 404
 
-    if user_orders:
-        return jsonify(user_orders)
-    else:
+    users = [order.user for order in product.orders]
+    if not users:
         return jsonify({'error': 'No users found for the specified product_id'}), 404
 
+    return jsonify([{
+        "user_id": user.user_id,
+        "name": user.name,
+        "email": user.email,
+        "address": user.address,
+        "age": user.age
+    } for user in users])
 
-#get category-wise spending of a user
+# Get category-wise spending of a user
 @app.route('/users/<int:user_id>/spending_by_category', methods=['GET'])
 def get_spending_by_category(user_id):
-    '''Calculate total spending by category for a specific user'''
-
-    # Dictionary to store spending by category
+    user_orders = Order.query.filter_by(user_id=user_id).all()
     category_spending = {}
 
-    # Get orders related to the user
-    user_orders = [order for order in UsersProduct['orders'] if order['user_id'] == user_id]
-
-    # For each order, get related products and categorize spending
     for order in user_orders:
-        for product_id in order['products']:
-            # get the product details by the product_id
-            product = next((pro_duct for pro_duct in UsersProduct['products'] if pro_duct['product_id'] == product_id), None)
-            
-            if product:
-                category = product['category']
-                price = product['price']
-                
-                # Sum the price for each category
-                if category in category_spending:
-                    category_spending[category] += price
-                else:
-                    category_spending[category] = price
+        for product in order.products:
+            category = product.category
+            price = product.price
+            category_spending[category] = category_spending.get(category, 0) + price
 
-    # Check if there are any spending records; if not, return a 404 error
-    if category_spending:
-        return jsonify(category_spending)
-    else:
+    if not category_spending:
         return jsonify({'error': 'No spending records found for this user'}), 404
+
+    return jsonify(category_spending)
 
       
 # error handler
